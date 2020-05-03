@@ -49,7 +49,7 @@ def is_valid_ppn(ppn, valid_delimiters=None):
     for valid_delimiter in valid_delimiters:
         if ppn.count(valid_delimiter) == 0:
             continue
-        if ppn.count(valid_delimiter) in (1, 2):
+        if ppn.count(valid_delimiter) > 0:
             counter += 1
         else:
             return False
