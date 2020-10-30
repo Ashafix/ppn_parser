@@ -7,16 +7,21 @@ Ppn = collections.namedtuple('PPN', ['pzn', 'lot', 'exp', 'sn'])
 
 def parse_ppn(ppn, to_xml=False):
 
-    while ppn.startswith('"') or ppn.startswith("'"):
+    while ppn.startswith(('"', "'")):
         ppn = ppn[1:]
-    while ppn.endswith('"') or ppn.endswith("'"):
+    while ppn.endswith(('"', "'")):
         ppn = ppn[:-1]
+
+    if ppn.startswith('[)>\x1e06\x1d') and ppn.endswith('\x1e\x04'):
+        ppn = ppn[7:-2]
+    if ppn.startswith('[)>RS06GS') and ppn.endswith('RSEOT'):
+        ppn = ppn[9:-5]
 
     if not is_valid_ppn(ppn):
         raise ValueError('invalid PPN')
     for valid_delimiter in VALID_DELIMITERS:
         if valid_delimiter in ppn:
-            cells = ppn.split(valid_delimiter)[1:]
+            cells = ppn.split(valid_delimiter)
             break
 
     parsed = {}
@@ -63,27 +68,45 @@ def _parse_cell(cell):
         if len(cell) < 15:
             raise ValueError('information too short, expected at least 15 characters, got: {}'.format(len(cell)))
         prefix = cell[3:7]
-        if prefix == '4150':
-            pzn = cell[7:14]
-            check_digit = int(cell[14])
-            check_sum_pzn = sum([int(x) * (weight + 1) for weight, x in enumerate(pzn)])
-            calculated_check_digit = check_sum_pzn % 11
-            if calculated_check_digit != check_digit:
-                raise ValueError('invalid check digit for PNZ, expected {}, got {}'.format(check_digit,
-                                                                                           calculated_check_digit))
-            # TODO add NTIN check
-            return cell[16:], 'pzn', pzn
-        else:
+        if prefix != '4150':
             raise ValueError('unknown prefix: {}'.format(prefix))
-    if application_identifier == '10':
+        pzn = cell[7:14]
+        check_digit = int(cell[14])
+        check_sum_pzn = sum([int(x) * (weight + 1) for weight, x in enumerate(pzn)])
+        calculated_check_digit = check_sum_pzn % 11
+        if calculated_check_digit != check_digit:
+            raise ValueError('invalid check digit for PNZ, expected {}, got {}'.format(check_digit,
+                                                                                       calculated_check_digit))
+        # TODO add NTIN check
+        return cell[16:], 'pzn', '{}{}'.format(pzn, check_digit)
+
+    if application_identifier in ('10', '1T'):
         lot_number = cell[2:]
         return '', 'lot', lot_number
-    if application_identifier == '17':
-        exp_date = cell[2:8]
-        return cell[8:], 'exp', exp_date
-    if application_identifier == '21':
-        serial_number = cell[2:]
+    if application_identifier == '17' or application_identifier[0] == 'D':
+        if application_identifier == '17':
+            start = 2
+            end = 8
+        else:
+            start = 1
+            end = len(cell)
+        exp_date = cell[start:end]
+        return cell[end:], 'exp', exp_date
+    if application_identifier == '21' or application_identifier[0] == 'S':
+        if application_identifier == '21':
+            start = 2
+        else:
+            start = 1
+        serial_number = cell[start:]
         return '', 'sn', serial_number
     if application_identifier == '':
         return '', '', ''
+    if application_identifier == '9N':
+        ppn = cell[2:]
+        if len(ppn) < 4 or len(ppn) > 22:
+            raise ValueError('unknown PPN, expected length 4-22, got {}'.format(len(ppn)))
+        pzn = ppn[2:-2]
+        # TODO add validation
+        return '', 'pzn', pzn
+
     raise ValueError('unknown application identifier: {}'.format(application_identifier))
